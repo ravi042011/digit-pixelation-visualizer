@@ -2,6 +2,7 @@
 import base64
 from io import BytesIO
 import json
+import os
 import unittest
 from unittest.mock import patch
 
@@ -11,7 +12,7 @@ from PIL import Image
 import psycopg
 from streamlit.testing.v1 import AppTest
 
-from app import clear_drawing, render_preview, render_visitor_count
+from app import clear_drawing, render_preview, render_visitor_count, visitor_database_url
 from pixelation import process_digit
 
 
@@ -73,6 +74,12 @@ class VisitorCountTests(unittest.TestCase):
         self.secrets_patch.start()
         self.addCleanup(self.state_patch.stop)
         self.addCleanup(self.secrets_patch.stop)
+        env_patch = patch.dict(os.environ, {}, clear=True)
+        file_patch = patch("app.dotenv_values", return_value={})
+        env_patch.start()
+        file_patch.start()
+        self.addCleanup(env_patch.stop)
+        self.addCleanup(file_patch.stop)
 
     def count(self, database_url, *, new_visit):
         if new_visit:
@@ -117,7 +124,9 @@ class VisitorCountTests(unittest.TestCase):
 
 class VisitorPageTests(unittest.TestCase):
     def test_page_displays_total_and_clear_does_not_count_a_second_visit(self):
-        with patch("app.get_visitor_count", return_value=42) as counter:
+        with patch("app.get_visitor_count", return_value=42) as counter, \
+                patch.dict(os.environ, {}, clear=True), \
+                patch("app.dotenv_values", return_value={}):
             page = AppTest.from_string("import app\napp.main()")
             page.secrets["visitor_counter"] = {"database_url": "test-database"}
             page.run()
@@ -129,6 +138,33 @@ class VisitorPageTests(unittest.TestCase):
             self.assertFalse(page.exception)
             self.assertFalse(counter.call_args.kwargs["new_visit"])
             self.assertEqual(page.session_state["canvas_version"], 1)
+
+
+class DatabaseConfigurationTests(unittest.TestCase):
+    def test_environment_takes_priority_without_reading_secrets_or_file(self):
+        with patch.dict(os.environ, {"DATABASE_URL": "environment-url"}, clear=True), \
+                patch("app.dotenv_values") as dotenv, patch("app.st.secrets", {}):
+            self.assertEqual(visitor_database_url(), "environment-url")
+            dotenv.assert_not_called()
+
+    def test_neon_file_is_used_without_streamlit_secrets(self):
+        with patch.dict(os.environ, {}, clear=True), \
+                patch("app.dotenv_values", return_value={"DATABASE_URL": "file-url"}), \
+                patch("app.st.secrets", {}):
+            self.assertEqual(visitor_database_url(), "file-url")
+
+    def test_top_level_streamlit_secret_is_supported(self):
+        with patch.dict(os.environ, {}, clear=True), \
+                patch("app.dotenv_values", return_value={}), \
+                patch("app.st.secrets", {"DATABASE_URL": "cloud-url"}):
+            self.assertEqual(visitor_database_url(), "cloud-url")
+
+    def test_empty_environment_url_does_not_silently_use_another_database(self):
+        with patch.dict(os.environ, {"DATABASE_URL": ""}, clear=True), \
+                patch("app.dotenv_values") as dotenv:
+            with self.assertRaises(ValueError):
+                visitor_database_url()
+            dotenv.assert_not_called()
 
 
 if __name__ == "__main__":

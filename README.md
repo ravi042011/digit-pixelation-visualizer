@@ -21,13 +21,29 @@ can disappear on restart or redeploy. Use a persistent PostgreSQL database and
 configure this in the app's Streamlit Community Cloud secrets settings:
 
 ```toml
-[visitor_counter]
-database_url = "postgresql://USER:PASSWORD@HOST:5432/DATABASE?sslmode=require"
+DATABASE_URL = "YOUR_REAL_POOLED_POSTGRESQL_CONNECTION_STRING"
 ```
 
-Replace the placeholders with your database connection details. Keep credentials
-out of source control. For local development, put the same configuration in
-`.streamlit/secrets.toml`, which is already ignored by Git.
+Replace the placeholder with the full connection string from your provider,
+not a sample URL. Keep credentials out of source control.
+The previous `[visitor_counter]` / `database_url` secrets configuration still works.
+
+### Neon local setup
+
+This repository is linked locally to the selected Neon production branch.
+Run `neon deploy` to apply `neon.ts` and write the connection strings into the
+Git-ignored `.env.local`. Node.js and the dependencies in `package.json` are
+only needed for Neon CLI configuration; the Streamlit app remains Python.
+
+The Python app reads the pooled `DATABASE_URL` in this order:
+the process environment, `.env.local` next to `app.py`, then Streamlit secrets.
+It retains `DATABASE_URL_UNPOOLED` for administrative tools but does not use it
+for normal app traffic. Existing environment values take priority.
+For local development, `.streamlit/secrets.toml` is also supported and ignored.
+
+Local `.env.local` is not uploaded to Streamlit Community Cloud. Copy its
+`DATABASE_URL` value privately into the cloud app's secrets as shown above,
+then save and reboot the app. Never commit this file or share its contents in chat.
 
 The database user must be able to create the `digit_pixelation_visitors` table
 and select, insert, and update its rows. The app creates the table automatically.

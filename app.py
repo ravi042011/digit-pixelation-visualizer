@@ -9,9 +9,11 @@ import base64
 from io import BytesIO
 import json
 import logging
+import os
 from pathlib import Path
 
 import cv2
+from dotenv import dotenv_values
 import numpy as np
 from PIL import Image
 import psycopg
@@ -129,16 +131,30 @@ def get_visitor_count(database_url: str, *, new_visit: bool) -> int:
     return total
 
 
+def visitor_database_url() -> str:
+    """Resolve the database without exposing credentials to the browser."""
+    url = os.environ.get("DATABASE_URL")
+    if url is None:
+        url = dotenv_values(Path(__file__).with_name(".env.local")).get("DATABASE_URL")
+    if url is None:
+        url = st.secrets.get("DATABASE_URL")
+        if url is None:
+            url = st.secrets["visitor_counter"]["database_url"]
+    if not isinstance(url, str) or not url.strip():
+        raise ValueError("DATABASE_URL must be a non-empty string")
+    return url
+
+
 def render_visitor_count() -> None:
     """Count a session only after its database transaction succeeds."""
     try:
         total = get_visitor_count(
-            st.secrets["visitor_counter"]["database_url"],
+            visitor_database_url(),
             new_visit=not st.session_state.get("visitor_counted", False),
         )
-    except (KeyError, FileNotFoundError, ValueError, psycopg.Error):
+    except (KeyError, OSError, ValueError, psycopg.Error):
         LOGGER.exception("Could not load or update the visitor counter")
-        st.warning("Visitor count unavailable. Check the visitor_counter database configuration.")
+        st.warning("Visitor count unavailable. Check DATABASE_URL or visitor_counter in Streamlit secrets.")
         return
     st.session_state["visitor_counted"] = True
     st.caption(f"Total visitors: {total:,} (browser sessions)")
