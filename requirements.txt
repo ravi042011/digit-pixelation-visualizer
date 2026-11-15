@@ -1,0 +1,5 @@
+streamlit>=1.28,<1.39
+streamlit-drawable-canvas
+numpy
+Pillow>=10.1
+opencv-python-headless
