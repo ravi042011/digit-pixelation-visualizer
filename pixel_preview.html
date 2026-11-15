@@ -7,7 +7,13 @@
 * { box-sizing: border-box; }
 body { margin: 0; color: #30334b; font: 13px system-ui, sans-serif; }
 .preview { position: relative; width: min(100%, 320px); margin: 0 auto; }
-canvas { width: 100%; height: auto; display: block; border-radius: 12px; background: #000; }
+canvas { width: 100%; height: auto; display: block; border-radius: 12px; background: #000;
+    image-rendering: pixelated; }
+#viewer:fullscreen { background: white; padding: 16px; overflow: auto; }
+#viewer:fullscreen .preview { width: min(100%, max(160px, calc(100dvh - 220px))); }
+#maximize { position: absolute; top: 8px; right: 8px; background: #f7f5ff;
+    box-shadow: 0 2px 8px #0003; }
+.view-error { max-width: 320px; margin: 6px auto; font-size: 11px; color: #a33030; }
 .empty { position: absolute; inset: 0; display: grid; align-content: center;
     justify-items: center; gap: 10px; color: #b7b2ce; pointer-events: none; }
 .empty[hidden] { display: none; }
@@ -35,9 +41,15 @@ button:disabled { opacity: .45; cursor: default; }
     gap: 9px; font-size: 10px; color: #8b8ea2; }
 .gradient { height: 5px; flex: 1; background: linear-gradient(90deg, #000, #fff);
     border: 1px solid #e9e9ee; border-radius: 4px; }
+.color-controls { max-width: 320px; margin: 18px auto 0; display: flex;
+    align-items: center; gap: 12px; }
+input[type="color"] { width: 36px; height: 30px; padding: 2px; background: white;
+    border: 1px solid #e5e0f6; border-radius: 6px; cursor: pointer; }
+.color-error { max-width: 320px; margin: 6px auto; font-size: 11px; color: #a33030; }
 </style>
 </head>
 <body>
+<div id="viewer">
 <div class="preview">
   <canvas id="output" width="640" height="640" role="img"
     aria-label="Pixelated digit preview. Draw a digit to begin."></canvas>
@@ -46,6 +58,8 @@ button:disabled { opacity: .45; cursor: default; }
     <strong>A small space for big ideas</strong>
     <span>Your pixelated digit will appear here</span>
   </div>
+  <button id="maximize" type="button" aria-controls="viewer" aria-pressed="false"
+    title="Maximize preview. Press Esc or Restore to exit.">Maximize</button>
 </div>
 <div class="status" role="status" aria-live="polite">
   <span id="stage">Waiting for your first stroke</span>
@@ -57,7 +71,14 @@ button:disabled { opacity: .45; cursor: default; }
   <label><input id="values" type="checkbox"> Values</label>
   <button id="replay" type="button" disabled>Replay</button>
 </div>
-<div class="legend"><span>0 / BLACK</span><span class="gradient"></span><span>255 / WHITE</span></div>
+<div class="legend"><span>0 / BLACK</span><span class="gradient"></span><span id="ink-label">255 / WHITE</span></div>
+<div class="color-controls">
+  <label>Pixel color <input id="pixel-color" type="color" value="#ffffff"></label>
+  <button id="reset-color" type="button">Reset color</button>
+</div>
+<p class="color-error" id="color-error" role="status" hidden></p>
+<p class="view-error" id="view-error" role="alert" hidden></p>
+</div>
 <script>
 const data = __PREVIEW_DATA__;
 const canvas = document.getElementById("output");
@@ -68,16 +89,79 @@ const stage = document.getElementById("stage");
 const resolution = document.getElementById("resolution");
 const progress = document.getElementById("progress");
 const replay = document.getElementById("replay");
+const colorPicker = document.getElementById("pixel-color");
+const viewer = document.getElementById("viewer");
+const maximize = document.getElementById("maximize");
+const viewError = document.getElementById("view-error");
+const colorStorageKey = "digit-pixelation-preview-color";
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+let color = data.color;
+let ink = [];
 let animation = 0;
+let animationElapsed = 0;
 let finalView = false;
 let images = [];
+
+maximize.addEventListener("click", async () => {
+  viewError.hidden = true;
+  try {
+    if (document.fullscreenElement === viewer) {
+      await document.exitFullscreen();
+    } else {
+      await viewer.requestFullscreen();
+    }
+  } catch (error) {
+    console.error("Could not change preview size", error);
+    viewError.textContent = "Could not change preview size. Your browser may not support fullscreen here.";
+    viewError.hidden = false;
+  }
+});
+document.addEventListener("fullscreenchange", () => {
+  const maximized = document.fullscreenElement === viewer;
+  maximize.textContent = maximized ? "Restore" : "Maximize";
+  maximize.setAttribute("aria-pressed", String(maximized));
+  if (!maximized) maximize.focus();
+});
+
+function reportColorStorageError(error) {
+  console.error("Could not persist the preview color", error);
+  const notice = document.getElementById("color-error");
+  notice.hidden = false;
+  notice.textContent = "Color works here, but could not be saved for your next drawing.";
+}
+
+function applyColor(nextColor) {
+  color = nextColor;
+  ink = [1, 3, 5].map(offset => parseInt(color.slice(offset, offset + 2), 16));
+  colorPicker.value = color;
+  document.querySelector(".gradient").style.background = `linear-gradient(90deg, #000, ${color})`;
+  document.getElementById("ink-label").textContent =
+    color.toLowerCase() === "#ffffff" ? "255 / WHITE" : "255 / COLOR";
+  if (finalView) {
+    drawPixels();
+    describeResult();
+  } else if (images.length) {
+    renderAnimationFrame(animationElapsed);
+  }
+}
+
+function saveColor() {
+  try {
+    sessionStorage.setItem(colorStorageKey, color);
+  } catch (error) {
+    reportColorStorageError(error);
+  }
+}
 
 function drawImage(image) {
   ctx.imageSmoothingEnabled = false;
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, 640, 640);
   ctx.drawImage(image, 0, 0, 640, 640);
+  ctx.globalCompositeOperation = "multiply";
+  ctx.fillStyle = color;
+  ctx.fillRect(0, 0, 640, 640);
+  ctx.globalCompositeOperation = "source-over";
 }
 
 function drawPixels(rows = data.size) {
@@ -85,15 +169,17 @@ function drawPixels(rows = data.size) {
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < data.size; x++) {
       const value = data.pixels[y][x];
-      ctx.fillStyle = `rgb(${value},${value},${value})`;
+      const rgb = ink.map(channel => Math.round(channel * value / 255));
+      const brightness = rgb[0] * .299 + rgb[1] * .587 + rgb[2] * .114;
+      ctx.fillStyle = `rgb(${rgb.join(",")})`;
       ctx.fillRect(x * cell, y * cell, cell, cell);
       if (grid.checked) {
-        ctx.strokeStyle = value >= 128 ? "#00000030" : "#ffffff20";
+        ctx.strokeStyle = brightness >= 128 ? "#00000030" : "#ffffff20";
         ctx.lineWidth = 1;
         ctx.strokeRect(x * cell, y * cell, cell, cell);
       }
       if (values.checked) {
-        ctx.fillStyle = value >= 128 ? "#161616" : "#c7c4d5";
+        ctx.fillStyle = brightness >= 128 ? "#161616" : "#c7c4d5";
         ctx.font = "8px monospace";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
@@ -111,36 +197,45 @@ function finish() {
   resolution.textContent = "32 x 32 / 1,024 pixels";
   progress.style.width = "100%";
   replay.disabled = false;
-  canvas.setAttribute("aria-label", "Completed 32 by 32 grayscale pixel grid of your drawing");
+  describeResult();
+}
+
+function describeResult() {
+  canvas.setAttribute("aria-label", `Completed 32 by 32 pixel grid of your drawing in ${color}`);
+}
+
+function renderAnimationFrame(elapsed) {
+  const names = ["1. Find the ink", "2. Crop & center", "3. Downsample", "3. Downsample"];
+  const sizes = ["Original drawing", "Centered + padded", "128 x 128", "64 x 64"];
+  progress.style.width = `${Math.min(100, elapsed / 30)}%`;
+  if (elapsed < 2000) {
+    const index = Math.floor(elapsed / 500);
+    drawImage(images[index]);
+    stage.textContent = names[index];
+    resolution.textContent = sizes[index];
+  } else {
+    drawImage(images[4]);
+    const rows = Math.min(data.size, Math.floor((elapsed - 2000) / 1000 * data.size) + 1);
+    drawPixels(rows);
+    ctx.fillStyle = "#b5a2ff";
+    ctx.fillRect(0, rows * 20, canvas.width, 2);
+    stage.textContent = "4. Reveal the pixel values";
+    resolution.textContent = `Row ${rows} of 32`;
+  }
 }
 
 function play() {
   cancelAnimationFrame(animation);
   if (reducedMotion.matches) { finish(); return; }
   finalView = false;
+  animationElapsed = 0;
   replay.disabled = true;
   canvas.setAttribute("aria-label", "Animating centering and downsampling of your drawing");
   const start = performance.now();
-  const names = ["1. Find the ink", "2. Crop & center", "3. Downsample", "3. Downsample"];
-  const sizes = ["Original drawing", "Centered + padded", "128 x 128", "64 x 64"];
   function tick(now) {
-    const elapsed = Math.max(0, now - start);
-    if (elapsed >= 3000) { finish(); return; }
-    progress.style.width = `${Math.min(100, elapsed / 30)}%`;
-    if (elapsed < 2000) {
-      const index = Math.floor(elapsed / 500);
-      drawImage(images[index]);
-      stage.textContent = names[index];
-      resolution.textContent = sizes[index];
-    } else {
-      drawImage(images[4]);
-      const rows = Math.min(data.size, Math.floor((elapsed - 2000) / 1000 * data.size) + 1);
-      drawPixels(rows);
-      ctx.fillStyle = "#b5a2ff";
-      ctx.fillRect(0, rows * 20, canvas.width, 2);
-      stage.textContent = "4. Reveal the pixel values";
-      resolution.textContent = `Row ${rows} of 32`;
-    }
+    animationElapsed = Math.max(0, now - start);
+    if (animationElapsed >= 3000) { finish(); return; }
+    renderAnimationFrame(animationElapsed);
     animation = requestAnimationFrame(tick);
   }
   animation = requestAnimationFrame(tick);
@@ -150,6 +245,14 @@ for (const control of [grid, values]) {
   control.addEventListener("change", () => { if (finalView) drawPixels(); });
 }
 replay.addEventListener("click", play);
+colorPicker.addEventListener("input", () => {
+  applyColor(colorPicker.value);
+  saveColor();
+});
+document.getElementById("reset-color").addEventListener("click", () => {
+  applyColor("#ffffff");
+  saveColor();
+});
 reducedMotion.addEventListener("change", () => { if (data.hasInk && images.length) finish(); });
 
 async function init() {
@@ -167,6 +270,16 @@ async function init() {
     console.error(error);
     stage.textContent = "Preview failed to load. Clear and redraw to try again.";
   }
+}
+applyColor(color);
+try {
+  const savedColor = sessionStorage.getItem(colorStorageKey);
+  if (savedColor !== null) {
+    if (!/^#[0-9a-f]{6}$/i.test(savedColor)) throw new Error("Invalid saved preview color");
+    applyColor(savedColor);
+  }
+} catch (error) {
+  reportColorStorageError(error);
 }
 init();
 </script>

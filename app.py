@@ -108,7 +108,7 @@ def image_uri(gray: np.ndarray) -> str:
     return "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
 
 
-def render_preview(rgba: np.ndarray | None) -> None:
+def render_preview(rgba: np.ndarray | None, color: str = "#ffffff") -> None:
     """Pass actual pipeline images to the single, replayable animated preview."""
     gray = (
         np.zeros((CANVAS_SIZE, CANVAS_SIZE), dtype=np.uint8)
@@ -128,6 +128,7 @@ def render_preview(rgba: np.ndarray | None) -> None:
         "pixels": pixels.tolist(),
         "hasInk": bbox is not None,
         "size": TARGET_SIZE,
+        "color": color,
     }
     template = PREVIEW_TEMPLATE.read_text(encoding="utf-8")
     components.html(template.replace("__PREVIEW_DATA__", json.dumps(payload)), height=518)
@@ -205,10 +206,14 @@ def main() -> None:
         'summarizes brightness in an image area, keeping soft gray edges.</p></li>'
         '<li><span class="step" aria-hidden="true">06</span><h3>Look inside each pixel</h3>'
         '<p>The result has 1,024 values: 0 is black, 255 is white, and values in between '
-        'are gray. The enlarged view keeps each pixel crisp and square.</p></li>'
+        'are gray. Your chosen preview color tints these brightness levels without changing '
+        'the numbers. The enlarged view keeps each pixel crisp and square.</p></li>'
         '</ol></section>'
         '<div class="note"><strong>Try it yourself:</strong> Draw a digit off-center and watch '
-        'it move to the middle. Select <strong>Values</strong> to inspect brightness, '
+        'it move to the middle. Adjust <strong>Pixel color</strong> to tint the result instantly, '
+        'without closing the picker. '
+        '<strong>Reset color</strong> restores white without clearing your drawing. '
+        'Select <strong>Values</strong> to inspect brightness, '
         'or <strong>Replay</strong> to watch the transformation again. '
         'This app visualizes pixels; it does not predict which digit you drew.</div>'
         '<div class="footer">DRAW / CENTER / DOWNSAMPLE / EXPLORE</div>',
