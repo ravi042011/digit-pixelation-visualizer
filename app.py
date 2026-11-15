@@ -14,6 +14,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 from PIL import Image
+import psycopg
 import streamlit as st
 import streamlit.components.v1 as components
 from streamlit_drawable_canvas import st_canvas
@@ -102,6 +103,47 @@ def clear_drawing() -> None:
     st.session_state["canvas_version"] += 1
 
 
+def get_visitor_count(database_url: str, *, new_visit: bool) -> int:
+    """Atomically count sessions in a shared, persistent PostgreSQL database."""
+    if not isinstance(database_url, str) or not database_url.strip():
+        raise ValueError("visitor_counter.database_url must be a non-empty string")
+    with psycopg.connect(database_url, connect_timeout=10) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "CREATE TABLE IF NOT EXISTS digit_pixelation_visitors ("
+                "id INTEGER PRIMARY KEY CHECK (id = 1), "
+                "total BIGINT NOT NULL CHECK (total >= 0))"
+            )
+            if new_visit:
+                cursor.execute(
+                    "INSERT INTO digit_pixelation_visitors (id, total) VALUES (1, 1) "
+                    "ON CONFLICT (id) DO UPDATE "
+                    "SET total = digit_pixelation_visitors.total + 1 RETURNING total"
+                )
+            else:
+                cursor.execute("SELECT total FROM digit_pixelation_visitors WHERE id = 1")
+            row = cursor.fetchone()
+            if row is None:
+                raise psycopg.DatabaseError("The visitor counter row is missing")
+            total = int(row[0])
+    return total
+
+
+def render_visitor_count() -> None:
+    """Count a session only after its database transaction succeeds."""
+    try:
+        total = get_visitor_count(
+            st.secrets["visitor_counter"]["database_url"],
+            new_visit=not st.session_state.get("visitor_counted", False),
+        )
+    except (KeyError, FileNotFoundError, ValueError, psycopg.Error):
+        LOGGER.exception("Could not load or update the visitor counter")
+        st.warning("Visitor count unavailable. Check the visitor_counter database configuration.")
+        return
+    st.session_state["visitor_counted"] = True
+    st.caption(f"Total visitors: {total:,} (browser sessions)")
+
+
 def image_uri(gray: np.ndarray) -> str:
     buffer = BytesIO()
     Image.fromarray(gray).save(buffer, format="PNG")
@@ -145,6 +187,7 @@ def main() -> None:
         'One canvas, endless experiments.</div>',
         unsafe_allow_html=True,
     )
+    render_visitor_count()
 
     draw_column, preview_column = st.columns(2)
     with draw_column, st.container(border=True):
