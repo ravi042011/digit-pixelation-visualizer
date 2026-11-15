@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; color: #30334b; font: 13px system-ui, sans-serif; }
+.preview { position: relative; width: min(100%, 320px); margin: 0 auto; }
+canvas { width: 100%; height: auto; display: block; border-radius: 12px; background: #000; }
+.empty { position: absolute; inset: 0; display: grid; align-content: center;
+    justify-items: center; gap: 10px; color: #b7b2ce; pointer-events: none; }
+.empty[hidden] { display: none; }
+.empty strong { color: #e3dff1; font-size: 16px; font-weight: 500; }
+.empty .icon { font-size: 34px; color: #a293da; }
+.status { display: flex; align-items: center; justify-content: space-between;
+    max-width: 320px; margin: 14px auto 8px; font-size: 12px; }
+#stage { color: #7561ce; font-weight: 650; }
+#resolution { color: #9295a6; font-variant-numeric: tabular-nums; }
+.track { height: 3px; background: #eeedf5; border-radius: 4px;
+    max-width: 320px; margin: auto; overflow: hidden; }
+#progress { height: 100%; width: 0; background: #9884e6; transition: width .15s linear; }
+.controls { max-width: 320px; margin: 18px auto; display: flex;
+    flex-wrap: wrap; align-items: center; gap: 12px; }
+label { display: flex; align-items: center; gap: 5px; color: #73778d;
+    font-size: 12px; cursor: pointer; }
+input { accent-color: #8570d6; }
+button { margin-left: auto; color: #7561ce; font: 600 12px system-ui;
+    border: 1px solid #e5e0f6; background: #f7f5ff; padding: 7px 10px;
+    border-radius: 7px; cursor: pointer; }
+button:hover { background: #eee9ff; }
+button:disabled { opacity: .45; cursor: default; }
+:focus-visible { outline: 2px solid #8570d6; outline-offset: 3px; }
+.legend { max-width: 320px; margin: 0 auto; display: flex; align-items: center;
+    gap: 9px; font-size: 10px; color: #8b8ea2; }
+.gradient { height: 5px; flex: 1; background: linear-gradient(90deg, #000, #fff);
+    border: 1px solid #e9e9ee; border-radius: 4px; }
+</style>
+</head>
+<body>
+<div class="preview">
+  <canvas id="output" width="640" height="640" role="img"
+    aria-label="Pixelated digit preview. Draw a digit to begin."></canvas>
+  <div class="empty" id="empty">
+    <span class="icon" aria-hidden="true">&#9638;</span>
+    <strong>A small space for big ideas</strong>
+    <span>Your pixelated digit will appear here</span>
+  </div>
+</div>
+<div class="status" role="status" aria-live="polite">
+  <span id="stage">Waiting for your first stroke</span>
+  <span id="resolution">32 x 32</span>
+</div>
+<div class="track" aria-hidden="true"><div id="progress"></div></div>
+<div class="controls">
+  <label><input id="grid" type="checkbox" checked> Grid</label>
+  <label><input id="values" type="checkbox"> Values</label>
+  <button id="replay" type="button" disabled>Replay</button>
+</div>
+<div class="legend"><span>0 / BLACK</span><span class="gradient"></span><span>255 / WHITE</span></div>
+<script>
+const data = __PREVIEW_DATA__;
+const canvas = document.getElementById("output");
+const ctx = canvas.getContext("2d");
+const grid = document.getElementById("grid");
+const values = document.getElementById("values");
+const stage = document.getElementById("stage");
+const resolution = document.getElementById("resolution");
+const progress = document.getElementById("progress");
+const replay = document.getElementById("replay");
+const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+let animation = 0;
+let finalView = false;
+let images = [];
+
+function drawImage(image) {
+  ctx.imageSmoothingEnabled = false;
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, 640, 640);
+  ctx.drawImage(image, 0, 0, 640, 640);
+}
+
+function drawPixels(rows = data.size) {
+  const cell = canvas.width / data.size;
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < data.size; x++) {
+      const value = data.pixels[y][x];
+      ctx.fillStyle = `rgb(${value},${value},${value})`;
+      ctx.fillRect(x * cell, y * cell, cell, cell);
+      if (grid.checked) {
+        ctx.strokeStyle = value >= 128 ? "#00000030" : "#ffffff20";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x * cell, y * cell, cell, cell);
+      }
+      if (values.checked) {
+        ctx.fillStyle = value >= 128 ? "#161616" : "#c7c4d5";
+        ctx.font = "8px monospace";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(value, (x + .5) * cell, (y + .5) * cell);
+      }
+    }
+  }
+}
+
+function finish() {
+  cancelAnimationFrame(animation);
+  finalView = true;
+  drawPixels();
+  stage.textContent = "Ready to explore";
+  resolution.textContent = "32 x 32 / 1,024 pixels";
+  progress.style.width = "100%";
+  replay.disabled = false;
+  canvas.setAttribute("aria-label", "Completed 32 by 32 grayscale pixel grid of your drawing");
+}
+
+function play() {
+  cancelAnimationFrame(animation);
+  if (reducedMotion.matches) { finish(); return; }
+  finalView = false;
+  replay.disabled = true;
+  canvas.setAttribute("aria-label", "Animating centering and downsampling of your drawing");
+  const start = performance.now();
+  const names = ["1. Find the ink", "2. Crop & center", "3. Downsample", "3. Downsample"];
+  const sizes = ["Original drawing", "Centered + padded", "128 x 128", "64 x 64"];
+  function tick(now) {
+    const elapsed = Math.max(0, now - start);
+    if (elapsed >= 3000) { finish(); return; }
+    progress.style.width = `${Math.min(100, elapsed / 30)}%`;
+    if (elapsed < 2000) {
+      const index = Math.floor(elapsed / 500);
+      drawImage(images[index]);
+      stage.textContent = names[index];
+      resolution.textContent = sizes[index];
+    } else {
+      drawImage(images[4]);
+      const rows = Math.min(data.size, Math.floor((elapsed - 2000) / 1000 * data.size) + 1);
+      drawPixels(rows);
+      ctx.fillStyle = "#b5a2ff";
+      ctx.fillRect(0, rows * 20, canvas.width, 2);
+      stage.textContent = "4. Reveal the pixel values";
+      resolution.textContent = `Row ${rows} of 32`;
+    }
+    animation = requestAnimationFrame(tick);
+  }
+  animation = requestAnimationFrame(tick);
+}
+
+for (const control of [grid, values]) {
+  control.addEventListener("change", () => { if (finalView) drawPixels(); });
+}
+replay.addEventListener("click", play);
+reducedMotion.addEventListener("change", () => { if (data.hasInk && images.length) finish(); });
+
+async function init() {
+  document.getElementById("empty").hidden = data.hasInk;
+  if (!data.hasInk) return;
+  try {
+    images = await Promise.all(data.frames.map(src => new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error("Could not load preview images"));
+      image.src = src;
+    })));
+    play();
+  } catch (error) {
+    console.error(error);
+    stage.textContent = "Preview failed to load. Clear and redraw to try again.";
+  }
+}
+init();
+</script>
+</body>
+</html>
