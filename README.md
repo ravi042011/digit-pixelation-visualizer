@@ -12,6 +12,8 @@ streamlit run app.py
 ## Total visitors
 
 The page shows the all-time number of browser sessions, not unique people.
+The total appears in a high-contrast badge below the introduction, with fixed
+text and background colors so it stays readable in light and dark themes.
 Drawing, clearing, and other Streamlit reruns do not add visits. A reload,
 new tab, or return visit that starts a new Streamlit session can add a visit.
 Bots are not filtered. The total refreshes when the page reruns.

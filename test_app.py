@@ -88,13 +88,14 @@ class VisitorCountTests(unittest.TestCase):
 
     def test_reruns_and_clear_count_once_but_new_session_counts_again(self):
         with patch("app.get_visitor_count", side_effect=self.count), \
-                patch("app.st.caption") as caption:
+                patch("app.st.markdown") as markdown:
             render_visitor_count()
             render_visitor_count()
             clear_drawing()
             render_visitor_count()
             self.assertEqual(self.total, 1234)
-            caption.assert_called_with("Total visitors: 1,234 (browser sessions)")
+            self.assertIn('<strong>1,234</strong>', markdown.call_args.args[0])
+            self.assertTrue(markdown.call_args.kwargs["unsafe_allow_html"])
             self.state.clear()
             render_visitor_count()
             self.assertEqual(self.total, 1235)
@@ -102,13 +103,13 @@ class VisitorCountTests(unittest.TestCase):
     def test_failed_first_visit_is_retried_without_displaying_a_false_total(self):
         with patch("app.get_visitor_count", side_effect=psycopg.OperationalError("offline")), \
                 patch("app.LOGGER.exception") as log, \
-                patch("app.st.warning") as warning, patch("app.st.caption") as caption:
+                patch("app.st.warning") as warning, patch("app.st.markdown") as markdown:
             render_visitor_count()
             self.assertNotIn("visitor_counted", self.state)
             warning.assert_called_once()
             log.assert_called_once()
-            caption.assert_not_called()
-        with patch("app.get_visitor_count", side_effect=self.count), patch("app.st.caption"):
+            markdown.assert_not_called()
+        with patch("app.get_visitor_count", side_effect=self.count), patch("app.st.markdown"):
             render_visitor_count()
             self.assertTrue(self.state["visitor_counted"])
             self.assertEqual(self.total, 1234)
@@ -131,8 +132,9 @@ class VisitorPageTests(unittest.TestCase):
             page.secrets["visitor_counter"] = {"database_url": "test-database"}
             page.run()
             self.assertFalse(page.exception)
-            self.assertIn("Total visitors: 42 (browser sessions)",
-                          [caption.value for caption in page.caption])
+            badge = next(element.value for element in page.markdown
+                         if 'class="visitor-count"' in element.value)
+            self.assertIn('Total visitors: <strong>42</strong>', badge)
             self.assertTrue(counter.call_args.kwargs["new_visit"])
             page.button[0].click().run()
             self.assertFalse(page.exception)

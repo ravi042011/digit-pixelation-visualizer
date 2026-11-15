@@ -53,6 +53,12 @@ iframe[title="streamlit_drawable_canvas.st_canvas"] { width: 280px; border-radiu
 h1 { color: #20233a !important; font-size: clamp(2rem, 5vw, 3rem) !important;
     letter-spacing: -1.8px; padding-top: 0 !important; padding-bottom: .5rem !important; }
 .intro { color: #74788f; font-size: 16px; max-width: 640px; margin-bottom: 28px; }
+.visitor-count { display: inline-flex; align-items: baseline; flex-wrap: wrap; gap: 8px;
+    background: #ffffff; color: #20233a; border: 1px solid #c8c2e8;
+    border-radius: 12px; padding: 12px 18px; margin-bottom: 16px;
+    font-size: 16px; font-weight: 600; }
+.visitor-count strong { color: #5544a8; font-size: 24px; font-weight: 750; }
+.visitor-count span { color: #555970; font-size: 13px; font-weight: 400; }
 .panel-heading { display: flex; align-items: center; gap: 10px;
     font-weight: 700; font-size: 18px; margin-bottom: 4px; }
 .step { display: inline-grid; place-items: center; width: 27px; height: 27px;
@@ -157,7 +163,11 @@ def render_visitor_count() -> None:
         st.warning("Visitor count unavailable. Check DATABASE_URL or visitor_counter in Streamlit secrets.")
         return
     st.session_state["visitor_counted"] = True
-    st.caption(f"Total visitors: {total:,} (browser sessions)")
+    st.markdown(
+        f'<div class="visitor-count">Total visitors: <strong>{total:,}</strong>'
+        '<span>(browser sessions)</span></div>',
+        unsafe_allow_html=True,
+    )
 
 
 def image_uri(gray: np.ndarray) -> str:
