@@ -30,6 +30,7 @@ div[data-testid="stColumn"], div[data-testid="column"] {
 }
 div[data-testid="stImageContainer"],
 div[data-testid="stImageContainer"] img { max-width: 100%; }
+div[data-testid="stImage"] { justify-content: center; }
 .digit-label { text-align: center; font-size: 1.6rem; font-weight: 700; }
 .arrow { text-align: center; font-size: 2rem; line-height: 1.1; margin-top: 0.4rem; }
 .arrow-caption { text-align: center; font-size: 0.8rem; color: #888; margin-bottom: 0.4rem; }
