@@ -16,12 +16,20 @@ STROKE_WIDTH = 20      # white pen thickness (within the ~18-22px spec)
 DISPLAY_SIZE = 320     # pixelated result is shown at 320 x 320 px
 DIGITS = list(range(10))
 
-# Ten fixed-width columns would overflow on most screens, so let the row scroll
-# horizontally instead of squeezing the 280px canvases.
+# Wrap complete digit panels into as many columns as the viewport can fit.
 _CSS = """
 <style>
-div[data-testid="stHorizontalBlock"] { overflow-x: auto; flex-wrap: nowrap; }
-div[data-testid="stColumn"], div[data-testid="column"] { min-width: 340px; }
+div[data-testid="stHorizontalBlock"] {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr));
+    gap: 2rem 1rem;
+}
+div[data-testid="stColumn"], div[data-testid="column"] {
+    width: 100%;
+    min-width: 0;
+}
+div[data-testid="stImageContainer"],
+div[data-testid="stImageContainer"] img { max-width: 100%; }
 .digit-label { text-align: center; font-size: 1.6rem; font-weight: 700; }
 .arrow { text-align: center; font-size: 2rem; line-height: 1.1; margin-top: 0.4rem; }
 .arrow-caption { text-align: center; font-size: 0.8rem; color: #888; margin-bottom: 0.4rem; }
